@@ -135,10 +135,9 @@ app.post('/signin', async(req, res)=>{
     }
 })
 
-app.get('/get-profile', auth, async(req, res) => {
+app.post('/get-profile', async(req, res) => {
     try {
-        const profile = await user.findOne({_id : req.userId})
-        // console.log(profile)
+        const profile = await user.findOne({number : req.body.number})
         res.status(201).json({status:true, user: profile, message: "User Profile" })
     } catch (error) {
         res.status(400).json({status: false, message: error.message})
