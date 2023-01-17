@@ -1,7 +1,15 @@
 const mongoose = require('mongoose')
 
 const registerSchema = mongoose.Schema({
+    new_user_id:{
+        type:String,
+        // required: true
+    },
     number:{
+        type:Number,
+        required: true
+    },
+    countrycode:{
         type:Number,
         required: true
     },
@@ -19,8 +27,9 @@ const registerSchema = mongoose.Schema({
     email:{
         type:String,
     },
-    sex:{
+    gender:{
         type:String,
+        required: true
     },
     trade:{
         type:String,

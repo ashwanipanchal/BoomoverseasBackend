@@ -1,10 +1,10 @@
 const mongoose = require('mongoose')
 
 const categorySchema = mongoose.Schema({
-    // job_id : {
-    //     type: String,
-    //     required: true
-    // },
+    icon: {
+        name:String,
+        image: String
+    },
     title : {
         type: String,
         required: true
