@@ -91,30 +91,6 @@ app.post('/signup', async(req, res)=>{
             otp : val,
         })
 
-        const transporter = nodemailer.createTransport({
-            host: "smtp.gmail.com",
-            port: 465,
-            secure: true, // upgrade later with STARTTLS
-            auth: {
-                user: "ashwani@appslure.com",
-                pass: "Appslure@1993",
-            },
-        });
-        var mailOptions = {
-            from: 'ashwani@appslure.com',
-            to: email,
-            subject: 'Welcome To Boomoverseas.',
-            text: `Have Fun. You have succesfully register to boomoverseas with mobile number ${number}`
-            // html: {path : 'public/pages/mailtemplate.html'}
-        };
-
-        transporter.sendMail(mailOptions, function (error, info) {
-            if (error) {
-                console.log(error);
-            } else {
-                console.log('Email sent: ' + info.response);
-            }
-        });
         com_id = com_id + 1;
         console.log(com_id)
         res.status(200).json({status: true, otp: val, number:number, message: "OTP sent Successfully"})
