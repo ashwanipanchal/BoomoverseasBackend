@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken')
 const SECRET_KEY = 'panchal'
 
 const auth = async(req, res, next) =>{
+    // console.log(req)
     try {
         const token = req.headers.authorization;
         if(token){

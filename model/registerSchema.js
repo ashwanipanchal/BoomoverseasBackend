@@ -63,6 +63,12 @@ const registerSchema = mongoose.Schema({
     },
     summary: {
         type: String
+    },
+    languages: {
+        type: Array
+    },
+    marital_status: {
+        type: String
     }
 },{timestemps : true})
 

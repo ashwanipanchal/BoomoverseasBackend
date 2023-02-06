@@ -26,15 +26,31 @@ const moment = require('moment/moment');
 const accountSid = "AC1b6abe2fba3f0866f2364e4bc3ecad44"
 const authToken = "c95df147ca45873ef36513acd08b0604"
 const client = require('twilio')(accountSid, authToken);
+const Aws = require('aws-sdk');
+const TestSchemaForImage = require('./model/TestSchemaForImage');
+const subcategoriesSchema = require('./model/subcategoriesSchema');
+const currencySchema = require('./model/currencySchema');
+const skillSchema = require('./model/skillSchema');
+const admin = require("firebase-admin");
+const fs = require('fs');
+const { Parser } = require('json2csv');
+const Json2csvParser = require("json2csv").Parser;
+// const { Parser } = require('@json2csv/plainjs');
 const app = express();
 var com_id = 10001
 var new_job_id = 1
+const serviceAccount = require("./boomoverses_firebase.json");
 app.use(express.static(__dirname + '/public'));
 mongoose.connect('mongodb+srv://admin:admin@cluster0.om6sk5y.mongodb.net/?retryWrites=true&w=majority',()=>{
     app.listen('3000',()=>{
         console.log("Server running on PORT 3000")
     })
 })
+
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+  });
+  
 
 app.use(bodyParser.urlencoded({ extended: true }))
 
@@ -51,49 +67,55 @@ app.post('/signup', async(req, res)=>{
             return res.status(400).json({status: false, message: "User already exist"})
         }
 
-        const hashPassword = await bcrypt.hash(password,10)
-        const val = Math.floor(1000 + Math.random() * 9000);
-        console.log("otp generated" + val)
-        await reguser.create({
-            "new_user_id" : `BO${com_id}`,
-            number: number,
-            countrycode: countryCode,
-            password : hashPassword,
-            email : email,
-            firstName : firstName,
-            lastName : lastName,
-            gender : gender,
-            dob: dob,
-            trade: trade,
-            activeJobs : 0,
-            summary: "",
-            passport:passport,
-            "passportImageF":{
-                "name": ""
-            },
-            "passportImageB":{
-                "name": ""
-            },
-            "resume":{
-                "name": ""
-            },
-            "profile_pic":{
-                "name": ""
-            },
-            
-        })
-
-        // const token = jwt.sign({number : result.number, id: result.id}, SECRET_KEY)
-        // res.status(200).json({status: true, user: result, token: token, message: "User Created Successfully"})
-
-        await otpschema.create({
-            number: number,
-            otp : val,
-        })
-
-        com_id = com_id + 1;
-        console.log(com_id)
-        res.status(200).json({status: true, otp: val, number:number, message: "OTP sent Successfully"})
+        const userInReg = await reguser.findOne({number: number})
+        // console.log("user already created OTP", userInReg)
+        // return
+        if(userInReg){
+            const otp = await otpschema.findOne({number:number})
+            res.status(200).json({status: true, otp: otp.otp, number:number, message: "OTP sent Successfully"})
+        }else{
+            const hashPassword = await bcrypt.hash(password,10)
+            const val = Math.floor(1000 + Math.random() * 9000);
+            console.log("otp generated" + val)
+            await reguser.create({
+                "new_user_id" : `BO${com_id}`,
+                number: number,
+                countrycode: countryCode,
+                password : hashPassword,
+                email : email,
+                firstName : firstName,
+                lastName : lastName,
+                gender : gender,
+                dob: dob,
+                trade: trade,
+                activeJobs : 0,
+                summary: "",
+                languages: [],
+                marital_status:"",
+                passport:passport,
+                "passportImageF":{
+                    "name": ""
+                },
+                "passportImageB":{
+                    "name": ""
+                },
+                "resume":{
+                    "name": ""
+                },
+                "profile_pic":{
+                    "name": ""
+                },
+                
+            })
+            await otpschema.create({
+                number: number,
+                otp : val,
+            })
+    
+            com_id = com_id + 1;
+            console.log(com_id)
+            res.status(200).json({status: true, otp: val, number:number, message: "OTP sent Successfully"})
+        }
 
     } catch (error) {
         res.status(400).json({status: false, message: error.message})
@@ -124,8 +146,6 @@ app.post('/verify-otp', async(req, res)=>{
     } catch (error) {
         res.status(400).json({status:false, message:error.message})
     }
-
-
 })
 
 app.post('/signin', async(req, res)=>{
@@ -143,10 +163,22 @@ app.post('/signin', async(req, res)=>{
             return res.status(400).json({status:false, message: "Invalid Password"})
         }
 
-        const fcm = await fcmtokenSchema.create({
-            number,
-            fcm_token: fcmToken
-        })
+        const checkFCM = await fcmtokenSchema.findOne({fcm_token: fcmToken})
+        console.log(checkFCM)
+        if(checkFCM){
+            console.log("if")
+            const fcm = await fcmtokenSchema.updateOne({number},{
+                number,
+                fcm_token: fcmToken
+            })
+        }else{
+            console.log("else")
+            const fcm = await fcmtokenSchema.create({
+                number,
+                fcm_token: fcmToken
+            })
+        }
+        
         const token = jwt.sign({number : existingUser.number, id: existingUser.id}, SECRET_KEY)
         res.status(200).json({status:true, user: existingUser, token: token, message: "Login Successfully" })
     } catch (error) {
@@ -191,10 +223,22 @@ app.post('/create_password', async(req, res) => {
     }
 })
 
-app.post('/get-profile', async(req, res) => {
+app.get('/get-profile', auth, async(req, res) => {
     try {
-        const profile = await user.findOne({number : req.body.number})
-        res.status(200).json({status:true, user: profile, message: "User Profile" })
+        const profile = await user.findOne({_id : req.userId})
+        const tImage = await TestSchemaForImage.find()
+        const appliedJobs = await jobApplied.find({"user_id":req.userId});
+        let filterJobs = tImage.map((e,i)=>{
+            let temp = appliedJobs.find(element=> {
+                if(element.job_id == e.title._id){
+                     e.title.job_status = 1
+                     return e
+                }else{
+                }
+            })
+           return e;
+          })
+        res.status(200).json({status:true, user: profile, banner:filterJobs, message: "User Profile" })
     } catch (error) {
         res.status(400).json({status: false, message: error.message})
     }
@@ -206,7 +250,7 @@ app.post('/post-job', auth, async(req, res)=>{
     const nn = `${date}/${new_job_id}`
     // console.log(nn)
     // return
-    const {title, exp, salary, job_location, industry, job_description, job_skill, overtime, food, vacancy, education_require,last_date_to_apply,
+    const {title, exp, salary, job_location, industry, trade, job_description, job_skill, overtime, food, vacancy, education_require,last_date_to_apply,
         gender,
         company_name,
         show_company_name,
@@ -224,10 +268,7 @@ app.post('/post-job', auth, async(req, res)=>{
         is_active,
         is_feature } = req.body
     try {
-        
         const companydetail = await companySchema.findOne({_id : company_name})
-        // console.log(companydetail)
-        // return
         const response = await jobSchema.create({
             "new_job_id":nn,
             title,
@@ -235,6 +276,7 @@ app.post('/post-job', auth, async(req, res)=>{
             salary,
             job_location,
             industry,
+            trade,
             job_status: 0,
             saved:0,
             job_description,
@@ -264,6 +306,28 @@ app.post('/post-job', auth, async(req, res)=>{
         })
         new_job_id = new_job_id + 1;
         console.log(new_job_id)
+                
+        const tokenss = await fcmtokenSchema.find()
+        const tokenArr = tokenss.map((i) =>{
+            return i.fcm_token
+        })
+
+        if(response){
+            var payload = {
+                notification: {
+                             title: title,
+                             body: job_description
+                            },
+            };
+            const messaging = admin.messaging().sendToDevice(tokenArr, payload).then((response) => {
+                console.log('Sent successfully.\n');
+                console.log(response);
+            })
+            .catch((error) => {
+                console.log('Sent failed.\n');
+                console.log(error);
+            });
+        }
         res.status(200).json({status: true, data: response, message: 'Job Posted Successfully'})
     } catch (error) {
         res.status(401).json({status: false, message: error.message})
@@ -486,11 +550,13 @@ app.post('/add-media', auth, async(req, res)=> {
 })
 
 app.post('/update-profile', auth, async (req, res) => {
-    const { firstName, lastName, fatherName, dob, exp, foreignExp, qualification, techQualification, address, city, state, passport, summary } = req.body;
-    // console.log(techQualification)
+    const { firstName, lastName, fatherName, dob, exp, foreignExp, qualification, techQualification, address, city, state, passport, summary,languages, marital_status } = req.body;
+    console.log(req.body)
+    // return
     try {
+        // const updated = await user.findOne({ _id: req.userId })
         const updated = await user.updateOne({ _id: req.userId },
-            { $set: {
+                { $set: {
                 firstName: firstName, 
                 lastName: lastName, 
                 fatherName: fatherName,
@@ -503,11 +569,12 @@ app.post('/update-profile', auth, async (req, res) => {
                 city: city,
                 state: state,
                 passport,
-                summary
+                summary,
+                languages: languages,
+                marital_status
              }},
-            { new: true })
-        // console.log(updated)
-        res.status(200).json({ status: true, data: updated, message: "New Media Added" })
+             {new: true})
+        res.status(200).json({ status: true, data: updated, message: "Profile Updated" })
     } catch (error) {
         res.status(401).json({ status: false, message: error.message })
     }
@@ -518,36 +585,65 @@ const storage = multer.diskStorage({
         cb(null, 'public');
     },
     filename (req, file, cb) {
-        cb(null, req.userId+"-"+ file.originalname);
+        cb(null, new Date().getTime() +"-"+ file.originalname);
     }
 })
 const upload = multer({storage});
 
-app.post('/upload-documents', auth, upload.fields([{
+app.post('/upload-documents', auth, 
+upload.fields([{
     name: 'passportImageF', maxCount: 1
 }, {
     name: 'passportImageB', maxCount: 1
 }, {
     name: 'resume', maxCount: 1
 }
-]), async (req, res) => {
+])
+, async (req, res) => {
     // const formData = req.files;
     console.log(req.files)
     try {
-        const updated = await user.updateOne({ _id: req.userId },
-            {
-                $set: {
-                    "passportImageF.name": req.userId+"-"+req.files.passportImageF[0].originalname,
-                    "passportImageB.name": req.userId+"-"+req.files.passportImageB[0].originalname,
-                    "resume.name": req.userId+"-"+req.files.resume[0].originalname,
-                    // "passportImageF.image" : req.files.passportImageF[0],
-                    // "passportImageF.image.contentType" : req.files.passportImageF[0].mimetype,
-                    // "passportImageB.image.data": req.files.passportImageF[1].originalname,
-                    // "passportImageB.image.contentType": req.files.passportImageF[1].mimetype,
-                }
-            })
-            console.log("resss",updated)
-        res.status(200).json({ status: true, data: updated, message: "Image Uploaded" })
+        if (req.files['passportImageF']){
+            console.log("want to update passportImageF")
+            const updated = await user.updateOne({ _id: req.userId },
+                {
+                        $set: {
+                            "passportImageF.name": req.userId+"-"+req.files.passportImageF[0]?.originalname,
+                        }
+                })
+        }
+        if (req.files['passportImageB']){
+            console.log("want to update passportImageB")
+            const updated = await user.updateOne({ _id: req.userId },
+                {
+                        $set: {
+                            "passportImageB.name": req.userId+"-"+req.files.passportImageB[0]?.originalname,
+                        }
+                })
+        }
+        if (req.files['resume']){
+            console.log("want to update resume")
+            const updated = await user.updateOne({ _id: req.userId },
+                {
+                        $set: {
+                            "resume.name": req.userId+"-"+req.files.resume[0]?.originalname,
+                        }
+                })
+        }
+        // const updated = await user.updateOne({ _id: req.userId },
+        //     {
+        //         $set: {
+        //             "passportImageF.name": req.userId+"-"+req.files.passportImageF[0]?.originalname,
+        //             "passportImageB.name": req.userId+"-"+req.files.passportImageB[0]?.originalname,
+        //             "resume.name": req.userId+"-"+req.files.resume[0]?.originalname,
+        //             // "passportImageF.image" : req.files.passportImageF[0],
+        //             // "passportImageF.image.contentType" : req.files.passportImageF[0].mimetype,
+        //             // "passportImageB.image.data": req.files.passportImageF[1].originalname,
+        //             // "passportImageB.image.contentType": req.files.passportImageF[1].mimetype,
+        //         }
+        //     })
+        //     console.log("resss",updated)
+        res.status(200).json({ status: true, message: "Image Uploaded" })
     } catch (error) {
         res.status(401).json({ status: false, message: error.message })
     }
@@ -647,7 +743,7 @@ app.post('/add_trade_center', auth, async(req, res) => {
 
 app.get('/get-applicants', auth, async(req, res) => {
     query = req.query;
-    // console.log(query)
+    console.log(query)
     try {
         const applicants = await jobApplied.aggregate( [
             {
@@ -657,16 +753,6 @@ app.get('/get-applicants', auth, async(req, res) => {
                 $lookup : {from : 'shortlists', localField : 'user_id', foreignField: 'user_id', as : 'user'}
             }
          ] )
-        //  console.log(applicants)
-        //  const checkForBoth = applicants.map((i) => {
-        //     console.log(i.user.length)
-        //     if(i.user.length > 0){
-                
-        //         return
-        //     }
-        //  })
-        //  res.status(200).json({ status: true, data : applicants, message: "Applicants List" })
-        //  return
          const f = await user.find()
          let list = [];
          let filterJobs = f.map((e,i)=>{
@@ -679,6 +765,20 @@ app.get('/get-applicants', auth, async(req, res) => {
             })
            return e;
           })
+
+        const fields = ['firstName', 'number', 'email' ];
+        const opts = { fields, header: true };
+
+        try {
+            const parser = new Parser(opts);
+            const csv = parser.parse(list);
+            fs.writeFile("latest.csv", csv, function(error) {
+                if (error) throw error;
+                console.log("Write to bezkoder_mongodb_fs.csv successfully!");
+            });
+        } catch (err) {
+            console.error(err);
+        }
 
         res.status(200).json({ status: true, data : list, message: "Applicants List" })
     } catch (error) {
@@ -725,7 +825,7 @@ const companyImage = multer.diskStorage({
         cb(null, 'public');
     },
     filename (req, file, cb) {
-        cb(null, req.userId+"-"+ file.originalname);
+        cb(null, Date().now()+"-"+ file.originalname);
     }
 })
 const ci = multer({companyImage});
@@ -805,11 +905,184 @@ app.post('/add_category', auth, upload.single("icon"), async(req, res)=> {
     }
 })
 
-// app.get('/get_country', auth, async(req, res) => {
-//     try {
-//         const country = await 
-//         res.status(200).json({status: true,  message: "Country List"})
-//     } catch (error) {
-//         res.status(401).json({status: false, message:error.message})
-//     }
-// })
+
+const testImage = multer.memoryStorage({
+    destination (req, file, cb) {
+        cb(null, 'public');
+    },
+    filefilter(req, file, cb) {
+        if (file.mimetype === 'image/jpeg' || file.mimetype === 'image/jpg') {
+            cb(null, true)
+        } else {
+            cb(null, false)
+        }
+    }
+})
+const test_image = multer({testImage});
+
+const s3 = new Aws.S3({
+    accessKeyId:process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey:process.env.AWS_ACCESS_KEY_SECRET
+})
+
+app.post('/add_banner', auth, test_image.single("icon"), async(req, res) => {
+    const params = {
+        Bucket:process.env.AWS_BUCKET_NAME,      // bucket that we made earlier
+        Key:Date.now()+"-"+req.file.originalname,// Name of the image
+        Body:req.file.buffer,                    // Body which will contain the image in buffer format
+        ACL:"public-read-write",                 // defining the permissions to get the public link
+        ContentType:req.file.mimetype            // Necessary to define the image content-type to view the photo in the browser with the link
+    };
+
+    const job = await jobSchema.findOne({_id :req.body.title})
+    s3.upload(params,(error,data)=>{
+        if(error){
+            res.status(500).send({"err":error})  
+        }
+  
+        
+    console.log(data) 
+    
+   // saving the information in the database.
+    const test = new TestSchemaForImage({
+            title: job,
+            icon: data.Location
+        });
+        test.save()
+            .then(result => {
+                res.status(200).json({status: true,  message: "Banner Added Succussfully"})
+            })
+            .catch(err => {
+                res.send({ message: err })
+          })
+    })
+})
+
+app.get('/get_banner', async(req, res) => {
+    try {
+        const tImage = await TestSchemaForImage.find()
+        res.status(200).json({status: true, data: tImage, message: "Banner List"})
+    } catch (error) {
+        res.status(401).json({status: false, message:error.message})
+    }
+})
+
+app.post('/delete_banner', async(req, res) => {
+    const {banner_id} = req.body;
+    try {
+        const banner = await TestSchemaForImage.deleteOne({_id: banner_id})
+        res.status(200).json({status: true, message: "Banner Deleted Succussfully"})
+    } catch (error) {
+        res.status(401).json({status: false, message:error.message})
+    }
+})
+
+app.post('/get_trade', async(req, res) => {
+    const {trade} = req.body
+    try {
+        const list = await subcategoriesSchema.findOne({trade})
+        console.log(list)
+        res.status(200).json({status: true, data: list, message: "Industry List"})
+    } catch (error) {
+        res.status(401).json({status: false, message:error.message})
+    }
+})
+
+app.post('/add_trade', async(req, res) => {
+    const {trade, data} = req.body
+    console.log(req.body)
+    try {
+        const ifAva = await subcategoriesSchema.findOne({trade})
+        if(ifAva){
+            const list = await subcategoriesSchema.updateOne({trade},{ $push: { data: data}})
+        }else{
+            const list = await subcategoriesSchema.create({trade, data:[data]})
+        }
+        // console.log(list)
+        res.status(200).json({status: true, message: "Industry Added Successfully"})
+    } catch (error) {
+        res.status(401).json({status: false, message:error.message})
+    }
+})
+
+app.get('/get_currency', async(req,res) => {
+    try {
+        const list = await currencySchema.find()
+        res.status(200).json({status: true, data: list,  message: "Currency List"})
+    } catch (error) {
+        res.status(401).json({status: false, message:error.message})
+    }
+})
+
+app.post('/add_currency', async(req,res) => {
+    const {currency} = req.body
+    try {
+        const list = await currencySchema.create({currency})
+        res.status(200).json({status: true, message: "Currency Added Successfully"})
+    } catch (error) {
+        res.status(401).json({status: false, message:error.message})
+    }
+})
+
+app.post('/delete_currency', async(req,res) => {
+    const {currency} = req.body
+    try {
+        const list = await currencySchema.deleteOne({_id: currency})
+        res.status(200).json({status: true, message: "Currency Deleted Successfully"})
+    } catch (error) {
+        res.status(401).json({status: false, message:error.message})
+    }
+})
+
+app.post('/add_skill', async(req,res) => {
+    const {skill} = req.body
+    try {
+        const list = await skillSchema.create({skill})
+        res.status(200).json({status: true, message: "Skill Added Successfully"})
+    } catch (error) {
+        res.status(401).json({status: false, message:error.message})
+    }
+})
+
+app.get('/get_skill', async(req,res) => {
+    try {
+        const list = await skillSchema.find()
+        res.status(200).json({status: true, data: list,  message: "Skills List"})
+    } catch (error) {
+        res.status(401).json({status: false, message:error.message})
+    }
+})
+
+app.post('/delete_skill', async(req,res) => {
+    const {skill_id} = req.body
+    try {
+        const list = await skillSchema.deleteOne({_id:skill_id})
+        res.status(200).json({status: true, message: "Skill Deleted Successfully"})
+    } catch (error) {
+        res.status(401).json({status: false, message:error.message})
+    }
+})
+
+app.get('/download_data', async(req, res) => {
+    try {
+        await user.find({}).lean().exec((err, data) => {
+            if (err) throw err;
+            const csvFields = ['number', 'firstName']
+            console.log(csvFields);
+            const json2csvParser = new Json2csvParser({
+                csvFields
+            });
+            const csvData = json2csvParser.parse(data);
+            // console.log(csvData)
+            // return
+            fs.writeFile("bezkoder_mongodb_fs.csv", csvData, function(error) {
+                if (error) throw error;
+                console.log("Write to bezkoder_mongodb_fs.csv successfully!");
+            });
+            // res.send('File downloaded Successfully')
+        });
+        res.status(200).json({status: true, message: "Data Downloaded Successfully"})
+    } catch (error) {
+        res.status(401).json({status: false, message:error.message})
+    } 
+})

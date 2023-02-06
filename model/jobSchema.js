@@ -20,6 +20,10 @@ const jobSchema = mongoose.Schema({
         type:String,
         required: true
     },
+    trade:{
+        type:String,
+        required: true
+    },
     salary:{
         type:String,
         required: true

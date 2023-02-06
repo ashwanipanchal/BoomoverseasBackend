@@ -56,7 +56,6 @@ const userSchema = mongoose.Schema({
     },
     email:{
         type:String,
-        required: true
     },
     gender:{
         type:String,
@@ -93,6 +92,12 @@ const userSchema = mongoose.Schema({
         type: Number
     },
     summary: {
+        type: String
+    },
+    languages: {
+        type: Array
+    },
+    marital_status: {
         type: String
     }
 },{timestemps : true})
